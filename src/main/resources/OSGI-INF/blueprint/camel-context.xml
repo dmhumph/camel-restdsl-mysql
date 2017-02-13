@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              ">
+    <!-- to setup camel servlet with OSGi HttpService -->
+    <reference id="httpService" interface="org.osgi.service.http.HttpService"/>
+    <bean
+        class="org.apache.camel.component.servlet.osgi.OsgiServletRegisterer"
+        destroy-method="unregister" init-method="register">
+        <property name="alias" value="/camel-rest-sql"/>
+        <property name="httpService" ref="httpService"/>
+        <property name="servlet" ref="camelServlet"/>
+    </bean>
+    <bean
+        class="org.apache.camel.component.servlet.CamelHttpTransportServlet" id="camelServlet"/>
+    <bean class="com.mysql.jdbc.jdbc2.optional.MysqlDataSource" id="dataSource" >
+	    <property name="serverName" value="mysql" />
+	    <property name="databaseName" value="sampledb" />
+	    <property name="port" value="3306" />
+	    <property name="user" value="demo" />
+	    <property name="password" value="demo" />
+	</bean>
+    <!-- bean which creates/destroys the database table for this example -->
+    <bean class="com.demo.camelrestsqldemo.DatabaseBean"
+        destroy-method="destroy" id="initDatabase" init-method="create">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <!-- order bean is our business logic bean that creates new orders -->
+    <bean class="com.demo.camelrestsqldemo.OrderBean" id="orderBean"/>
+    <!-- here is Camel configured with a number of routes -->
+    <camelContext id="camelContext-1d8337bd-af5d-4d00-947c-a88b25cf660b" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- use Camel property placeholder loaded from the given file -->
+        <propertyPlaceholder id="placeholder" location="classpath:sql.properties"/>
+        <restConfiguration bindingMode="json" component="servlet"
+            contextPath="/camel-rest-sql" port="{{env:HTTP_PORT:8181}}"/>
+        <!-- rest service for books -->
+        <rest consumes="application/json" path="/books" produces="application/json">
+            <!-- rest service that fetches names of all books -->
+            <get outType="com.demo.camelrestsqldemo.model.Book" uri="/">
+                <to uri="sql:{{sql.selectBooks}}?outputType=SelectList&amp;outputClass=com.demo.camelrestsqldemo.model.Book"/>
+            </get>
+            <!-- rest service that fetches an order by id -->
+            <get outType="com.demo.camelrestsqldemo.model.Order" uri="order/{id}">
+                <to uri="sql:{{sql.selectOrder}}?outputType=SelectOne&amp;outputClass=com.demo.camelrestsqldemo.model.Order"/>
+            </get>
+        </rest>
+        <!-- route that generate new orders and insert them in the database -->
+        <route id="generateOrder-route">
+            <from id="_from1" uri="timer:foo?delay=1s&amp;period=10s"/>
+            <transform id="_transform1">
+                <method method="generateOrder" ref="orderBean"/>
+            </transform>
+            <to id="_to1" uri="sql:{{sql.insertOrder}}"/>
+            <log id="_log1" message="Inserted new order ${body.id}"/>
+        </route>
+        <!-- route that process the orders by picking up new rows from the database
+         and when done processing then update the row to mark it as processed -->
+        <route id="processOrder-route">
+            <from id="_from2" uri="sql:{{sql.selectUnprocessedOrders}}?consumer.onConsume={{sql.markOrder}}"/>
+            <transform id="_transform2">
+                <method method="rowToOrder" ref="orderBean"/>
+            </transform>
+            <to id="_to2" uri="bean:orderBean?method=processOrder"/>
+            <log id="_log2" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>
