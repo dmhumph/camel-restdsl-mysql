@@ -19,7 +19,7 @@
     <fabric8.version>2.2.0.redhat-085</fabric8.version>
     <docker.maven.plugin.version>0.13.6</docker.maven.plugin.version>
     <karaf.plugin.version>4.0.2.redhat-621085</karaf.plugin.version>
-    <derby.version>10.10.2.0</derby.version>
+    <derby.version>10.14.2.0</derby.version>
     <spring.features.version>3.0.4</spring.features.version>
     <spring.tx.feature.version>3.2.11.RELEASE_1</spring.tx.feature.version>
 
